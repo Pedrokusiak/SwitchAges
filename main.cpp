@@ -1,206 +1,97 @@
-#define SCREEN_WIDTH 1280
-#define SCREEN_HEIGHT 720
+#include <SDL2/SDL.h>
+#include <./box2d/box2d.h>
 
-typedef struct
-{
-    SDL_Renderer *renderer;
-    SDL_Window *window;
-    int up;
-    int down;
-    int left;
-    int right;
-} App;
+const int SCREEN_WIDTH = 800;
+const int SCREEN_HEIGHT = 600;
+const float PIXELS_PER_METER = 30.0f;
 
-typedef struct
-{
-    int x;
-    int y;
-    SDL_Texture *texture;
-} Entity;
+SDL_Window* gWindow = nullptr;
+SDL_Renderer* gRenderer = nullptr;
 
-App app;
-Entity entity;
+b2World* gWorld = nullptr;
 
-SDL_Texture *loadTexture(void *pixels, int width, int height)
-{
-    SDL_Texture *texture = SDL_CreateTexture(app.renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STATIC, width, height);
-    if (!texture)
-    {
-        printf("Failed to create texture: %s\n", SDL_GetError());
-        exit(1);
-    }
-    // Update the texture with the pixel data
-    SDL_UpdateTexture(texture, NULL, pixels, width * sizeof(Uint32));
-    return texture;
+void InitSDL() {
+    SDL_Init(SDL_INIT_VIDEO);
+    gWindow = SDL_CreateWindow("Box2D Example", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN);
+    gRenderer = SDL_CreateRenderer(gWindow, -1, SDL_RENDERER_ACCELERATED);
 }
 
-void doKeyUp(SDL_KeyboardEvent *event);
-void doKeyDown(SDL_KeyboardEvent *event);
-
-void doInput(void)
-{
-    SDL_Event event;
-    while (SDL_PollEvent(&event))
-    {
-        switch (event.type)
-        {
-        case SDL_QUIT:
-            exit(0);
-            break;
-        case SDL_KEYDOWN:
-            doKeyDown(&event.key);
-            break;
-        case SDL_KEYUP:
-            doKeyUp(&event.key); // Call doKeyUp function here
-            break;
-        default:
-            break;
-        }
-    }
-}
-
-void doKeyDown(SDL_KeyboardEvent *event)
-{
-    if (event->repeat == 0)
-    {
-        if (event->keysym.scancode == SDL_SCANCODE_UP)
-        {
-            app.up = 1;
-        }
-
-        if (event->keysym.scancode == SDL_SCANCODE_DOWN)
-        {
-            app.down = 1;
-        }
-
-        if (event->keysym.scancode == SDL_SCANCODE_LEFT)
-        {
-            app.left = 1;
-        }
-
-        if (event->keysym.scancode == SDL_SCANCODE_RIGHT)
-        {
-            app.right = 1;
-        }
-    }
-}
-
-void doKeyUp(SDL_KeyboardEvent *event)
-{
-    if (event->repeat == 0)
-    {
-        if (event->keysym.scancode == SDL_SCANCODE_UP)
-        {
-            app.up = 0;
-        }
-
-        if (event->keysym.scancode == SDL_SCANCODE_DOWN)
-        {
-            app.down = 0;
-        }
-
-        if (event->keysym.scancode == SDL_SCANCODE_LEFT)
-        {
-            app.left = 0;
-        }
-
-        if (event->keysym.scancode == SDL_SCANCODE_RIGHT)
-        {
-            app.right = 0;
-        }
-    }
-}
-
-void prepareScene(void)
-{
-    SDL_SetRenderDrawColor(app.renderer, 96, 128, 255, 255);
-    SDL_RenderClear(app.renderer);
-}
-
-void blit(SDL_Texture *texture, int x, int y)
-{
-    SDL_Rect dest;
-    dest.x = x;
-    dest.y = y;
-    SDL_QueryTexture(texture, NULL, NULL, &dest.w, &dest.h);
-    SDL_RenderCopy(app.renderer, texture, NULL, &dest);
-}
-
-void presentScene(void)
-{
-    SDL_RenderPresent(app.renderer);
-}
-
-void initSDL(void)
-{
-    int rendererFlags, windowFlags;
-    rendererFlags = SDL_RENDERER_ACCELERATED;
-    windowFlags = 0;
-    if (SDL_Init(SDL_INIT_VIDEO) < 0)
-    {
-        printf("Couldn't initialize SDL: %s\n", SDL_GetError());
-        exit(1);
-    }
-    app.window = SDL_CreateWindow("Shooter 01", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH, SCREEN_HEIGHT, windowFlags);
-    if (!app.window)
-    {
-        printf("Failed to open %d x %d window: %s\n", SCREEN_WIDTH, SCREEN_HEIGHT, SDL_GetError());
-        exit(1);
-    }
-    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
-    app.renderer = SDL_CreateRenderer(app.window, -1, rendererFlags);
-    if (!app.renderer)
-    {
-        printf("Failed to create renderer: %s\n", SDL_GetError());
-        exit(1);
-    }
-}
-
-void cleanup()
-{
-    SDL_DestroyRenderer(app.renderer);
-    SDL_DestroyWindow(app.window);
+void CloseSDL() {
+    SDL_DestroyRenderer(gRenderer);
+    SDL_DestroyWindow(gWindow);
     SDL_Quit();
 }
 
-int main(int argc, char *argv[])
-{
-    memset(&app, 0, sizeof(App));
-    memset(&entity, 0, sizeof(Entity));
-    initSDL();
-    entity.x = 250;
-    entity.y = 250;
-    Uint32 pixels[SCREEN_WIDTH * SCREEN_HEIGHT] = {0};
-    entity.texture = loadTexture(pixels, entity.x, entity.y);
-    atexit(cleanup);
-    while (1)
-    {
-        prepareScene();
-        doInput();
+void InitBox2D() {
+    b2Vec2 gravity(0.0f, 9.8f);
+    gWorld = new b2World(gravity);
+}
 
-        if (app.up)
-        {
-            entity.y -= 4;
+void CloseBox2D() {
+    delete gWorld;
+}
+
+void RenderBody(b2Body* body) {
+    b2Fixture* fixture = body->GetFixtureList();
+    while (fixture) {
+        b2Shape* shape = fixture->GetShape();
+        if (shape->GetType() == b2Shape::e_polygon) {
+            b2PolygonShape* polygonShape = static_cast<b2PolygonShape*>(shape);
+            b2Vec2 vertices[4];
+            for (int i = 0; i < polygonShape->m_count; ++i) {
+                vertices[i] = body->GetWorldPoint(polygonShape->m_vertices[i]);
+            }
+
+            SDL_SetRenderDrawColor(gRenderer, 0xFF, 0x00, 0x00, 0xFF);
+            SDL_RenderDrawLines(gRenderer, (SDL_Point*)vertices, polygonShape->m_count + 1);
         }
-
-        if (app.down)
-        {
-            entity.y += 4;
-        }
-
-        if (app.left)
-        {
-            entity.x -= 4;
-        }
-
-        if (app.right)
-        {
-            entity.x += 4;
-        }
-
-        blit(entity.texture, entity.x, entity.y);
-        presentScene();
-        SDL_Delay(16);
+        fixture = fixture->GetNext();
     }
+}
+
+int main(int argc, char* args[]) {
+    InitSDL();
+    InitBox2D();
+
+    b2BodyDef bodyDef;
+    bodyDef.type = b2_dynamicBody;
+    bodyDef.position.Set(SCREEN_WIDTH / 2 / PIXELS_PER_METER, 0);
+
+    b2Body* body = gWorld->CreateBody(&bodyDef);
+
+    b2PolygonShape dynamicBox;
+    dynamicBox.SetAsBox(50.0f / PIXELS_PER_METER, 50.0f / PIXELS_PER_METER);
+
+    b2FixtureDef fixtureDef;
+    fixtureDef.shape = &dynamicBox;
+    fixtureDef.density = 1.0f;
+    fixtureDef.friction = 0.3f;
+
+    body->CreateFixture(&fixtureDef);
+
+    bool quit = false;
+    SDL_Event e;
+
+    while (!quit) {
+        while (SDL_PollEvent(&e) != 0) {
+            if (e.type == SDL_QUIT) {
+                quit = true;
+            }
+        }
+
+        gWorld->Step(1.0f / 60.0f, 6, 2);
+
+        SDL_SetRenderDrawColor(gRenderer, 0x00, 0x00, 0x00, 0xFF);
+        SDL_RenderClear(gRenderer);
+
+        RenderBody(body);
+
+        SDL_RenderPresent(gRenderer);
+    }
+
+    CloseBox2D();
+    CloseSDL();
+
     return 0;
 }
+
